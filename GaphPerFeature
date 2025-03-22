@@ -1,0 +1,96 @@
+import numpy as np
+import pandas as pd
+from sklearn.datasets import load_breast_cancer
+from sklearn.metrics.pairwise import euclidean_distances
+import networkx as nx
+import matplotlib.pyplot as plt
+import os
+
+# Initial settings
+np.random.seed(42)  # For reproducibility
+plt.style.use('ggplot')
+os.makedirs('Breast_Cancer_Graphs', exist_ok=True)
+
+# Load Breast Cancer dataset
+data = load_breast_cancer()
+df = pd.DataFrame(data.data, columns=data.feature_names)
+df['Target'] = data.target
+
+print("Breast Cancer Dataset:")
+print(df.head())
+
+# Function to generate graph for each feature
+def generate_feature_graph(feature_idx, df, feature_name):
+    # Select feature and target
+    df_feature = df.iloc[:, [feature_idx, -1]]
+
+    # Compute Euclidean distances
+    distances = euclidean_distances(df_feature.iloc[:, [0]])
+
+    # Create adjacency matrix
+    adjacency = np.zeros((len(df_feature), len(df_feature)), dtype=int)
+
+    # Connection logic
+    for i in range(len(df_feature)):
+        dist_row = distances[i]
+        sorted_idx = np.argsort(dist_row)[::-1]
+        sorted_idx = sorted_idx[sorted_idx != i]
+        unique_dists = np.unique(dist_row[sorted_idx])[::-1]
+
+        for d in unique_dists:
+            candidates = sorted_idx[dist_row[sorted_idx] <= d]
+            if len(candidates) == 0:
+                continue
+
+            same_label = (df_feature.iloc[candidates]['Target']
+                          == df_feature.iloc[i]['Target'])
+            if np.mean(same_label) >= 0.75:
+                adj_idx = candidates[same_label]
+                adjacency[i, adj_idx] = 1
+                break
+
+    # Generate graph
+    G = nx.from_numpy_array(adjacency)
+    plt.figure(figsize=(8, 6))
+    node_colors = ['#FF6B6B' if t == 0 else '#4ECDC4' for t in df_feature['Target']]
+    pos = nx.spring_layout(G, seed=42, k=0.5)
+    nx.draw(G, pos, node_color=node_colors, node_size=50,
+            edge_color='#556270', width=0.5, alpha=0.8, with_labels=False,
+            font_size=10, font_color='#2C3E50')
+    plt.title(f"Feature {feature_idx+1}: {feature_name}\n",
+             fontsize=12, color='#2C3E50')
+
+    # Display graph
+    plt.show()
+
+    # Save graph
+    plt.savefig(f'Breast_Cancer_Graphs/Feature_{feature_idx+1}.png',
+               dpi=150, bbox_inches='tight')
+    plt.close()
+
+    return adjacency
+
+# Process all features
+results = []
+for fidx in range(30):  # There are 30 features in the dataset
+    feature_name = data.feature_names[fidx]
+    print(f"\nAnalyzing Feature {fidx+1}: {feature_name}")
+    adj_mat = generate_feature_graph(fidx, df, feature_name)
+    isolated = np.sum(np.sum(adj_mat, axis=1) == 0)
+    connections = np.sum(adj_mat)
+    results.append({
+        'Feature_ID': fidx+1,
+        'Feature_Name': feature_name,
+        'Isolated_Nodes': isolated,
+        'Total_Connections': connections
+    })
+
+# Generate report
+report_df = pd.DataFrame(results)
+report_df['Connection_Ratio'] = report_df['Total_Connections'] / (len(df)**2 - len(df))
+print("\nFeature Analysis Report:")
+print(report_df.sort_values('Connection_Ratio', ascending=False).to_string(index=False))
+
+# Save report
+report_df.to_csv('Breast_Cancer_Feature_Analysis_Report.csv', index=False)
+print("\nReport saved to 'Breast_Cancer_Feature_Analysis_Report.csv'.")
