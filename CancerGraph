@@ -1,0 +1,107 @@
+import numpy as np
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+from sklearn.datasets import load_breast_cancer
+from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.preprocessing import StandardScaler
+from math import sqrt
+
+# Set seed for reproducibility
+np.random.seed(42)
+
+# Load Breast Cancer Dataset
+data = load_breast_cancer()
+X = data.data  # Features (30 features)
+y = data.target  # Labels (0: benign, 1: malignant)
+
+# Create DataFrame
+df = pd.DataFrame(X, columns=data.feature_names)
+df['Class'] = y
+
+# Separate features and labels
+X = df.drop('Class', axis=1)
+y = df['Class']
+
+# Normalize features using StandardScaler (Z-score normalization)
+scaler = StandardScaler()
+X_normalized = scaler.fit_transform(X)
+
+# Create new DataFrame with normalized features
+df_normalized = pd.DataFrame(X_normalized, columns=X.columns)
+df_normalized['Class'] = y  # Add labels back
+
+# Number of samples
+n_samples = len(df_normalized)
+
+# Compute Euclidean distance matrix (using normalized features)
+distances = euclidean_distances(df_normalized.drop('Class', axis=1))
+
+# Create graph
+G = nx.Graph()
+
+# Add nodes (samples) to the graph
+for i in range(n_samples):
+    G.add_node(i, label=df_normalized.iloc[i]['Class'])
+
+# Define the range for k
+k_min = 3
+k_max = int(round(sqrt(n_samples)))  # Nearest natural number to sqrt(n_samples)
+
+# Check condition and add edges
+for i in range(n_samples):
+    # Compute distances and sort indices
+    sorted_indices = np.argsort(distances[i])
+
+    # Select nearest neighbors (excluding the sample itself)
+    nearest_neighbors = sorted_indices[1:k_max + 1]  # Start from 1 because the sample itself has distance 0
+
+    # Check 75% same-label condition for k from k_min to k_max
+    for k in range(k_min, k_max + 1):
+        nearest_k = sorted_indices[1:k + 1]  # k nearest neighbors
+        nearest_labels = df_normalized.iloc[nearest_k]['Class']
+
+        # Check if at least 75% of the k nearest neighbors have the same label
+        if np.sum(nearest_labels == df_normalized.iloc[i]['Class']) / k >= 0.75:
+            # If condition is met, add edges to all same-label nodes in nearest_neighbors
+            for j in nearest_neighbors:
+                if df_normalized.iloc[j]['Class'] == df_normalized.iloc[i]['Class']:
+                    G.add_edge(i, j)
+            break  # If the condition is met for any k, stop checking further k values
+
+# Find connected components
+connected_components = list(nx.connected_components(G))
+
+# Create a layout for the entire graph with spacing between components
+pos = {}
+x_offset = 0  # To shift each component horizontally
+y_offset = 0  # To shift each component vertically
+
+for component in connected_components:
+    # Create a subgraph for the current component
+    subgraph = G.subgraph(component)
+
+    # Compute positions for the current component
+    subgraph_pos = nx.spring_layout(subgraph)
+
+    # Shift positions to avoid overlap with other components
+    for node, (x, y) in subgraph_pos.items():
+        pos[node] = (x + x_offset, y + y_offset)
+
+    # Update offsets for the next component
+    x_offset += 4  # Increase horizontal spacing
+    y_offset += 0  # Increase vertical spacing (optional)
+
+# Draw the graph with spacing between components
+plt.figure(figsize=(15, 10))
+labels = nx.get_node_attributes(G, 'label')
+
+# Color nodes based on their class
+node_colors = ['red' if labels[node] == 0 else 'blue' for node in G.nodes()]
+
+# Draw nodes and edges
+nx.draw(G, pos, with_labels=True, node_color=node_colors, node_size=500, font_size=10, font_color='white')
+
+# Add title
+plt.title('Graph Representation of Breast Cancer Dataset (Normalized Features)')
+plt.show()
